@@ -13,6 +13,7 @@ export class WebPlatform implements Platform {
   private boundClickHandler: (e: MouseEvent) => void;
   private boundMouseMoveHandler: (e: MouseEvent) => void;
   private boundResizeHandler: () => void;
+  private boundContextMenuHandler: (e: MouseEvent) => void;
   
   constructor(config: PlatformConfig) {
     this.canvas = config.canvas;
@@ -23,6 +24,7 @@ export class WebPlatform implements Platform {
     this.boundClickHandler = this.handleClick.bind(this);
     this.boundMouseMoveHandler = this.handleMouseMove.bind(this);
     this.boundResizeHandler = this.handleResize.bind(this);
+    this.boundContextMenuHandler = this.handleContextMenu.bind(this);
     
     // Setup input event listeners
     this.setupInputListeners();
@@ -38,8 +40,9 @@ export class WebPlatform implements Platform {
   
   private setupInputListeners(): void {
     window.addEventListener('keydown', this.boundKeyDownHandler);
-    this.canvas.addEventListener('click', this.boundClickHandler);
+    this.canvas.addEventListener('mousedown', this.boundClickHandler);
     this.canvas.addEventListener('mousemove', this.boundMouseMoveHandler);
+    this.canvas.addEventListener('contextmenu', this.boundContextMenuHandler);
   }
   
   getViewport(): PlatformViewport {
@@ -72,8 +75,9 @@ export class WebPlatform implements Platform {
     
     // Remove input listeners
     window.removeEventListener('keydown', this.boundKeyDownHandler);
-    this.canvas.removeEventListener('click', this.boundClickHandler);
+    this.canvas.removeEventListener('mousedown', this.boundClickHandler);
     this.canvas.removeEventListener('mousemove', this.boundMouseMoveHandler);
+    this.canvas.removeEventListener('contextmenu', this.boundContextMenuHandler);
     
     // Remove resize listener
     window.removeEventListener('resize', this.boundResizeHandler);
@@ -99,6 +103,11 @@ export class WebPlatform implements Platform {
       clientX: event.clientX,
       clientY: event.clientY
     });
+  }
+  
+  private handleContextMenu(event: MouseEvent): void {
+    // Prevent context menu from appearing on canvas
+    event.preventDefault();
   }
   
   private handleResize(): void {

@@ -137,7 +137,7 @@ export class RendererLayer extends BaseLayer {
     });
 
     this.subscribe(EventType.INPUT_MOUSE_DOWN, (payload: InputMouseDownPayload) => {
-      this.handleClick(payload.clientX, payload.clientY);
+      this.handleClick(payload.clientX, payload.clientY, payload.button);
     });
 
     this.subscribe(EventType.INPUT_MOUSE_MOVE, (payload: InputMouseMovePayload) => {
@@ -208,8 +208,17 @@ export class RendererLayer extends BaseLayer {
     }
   }
 
-  private handleClick(clientX: number, clientY: number): void {
+  private handleClick(clientX: number, clientY: number, button: number): void {
     if (!this.drawMode) return;
+    
+    // Right-click (button 2) exits draw mode
+    if (button === 2) {
+      this.toggleDrawMode(false);
+      return;
+    }
+    
+    // Only handle left-clicks (button 0) for drawing
+    if (button !== 0) return;
     
     const position = this.getGroundPosition(clientX, clientY);
     if (!position) return;
@@ -220,12 +229,17 @@ export class RendererLayer extends BaseLayer {
       console.log('Start position set:', this.startPosition);
     } else {
       // Second click - create final box
-      this.createFinalBox(this.startPosition, position);
+      const snappedEnd = this.createFinalBox(this.startPosition, position);
       // Clear the preview before starting the next wall
       this.clearPreview();
-      // Set the end position as the new start position for continuous drawing
-      this.startPosition = position.clone();
-      console.log('Box created, continuing from endpoint');
+      // Set the snapped end position as the new start position for continuous drawing
+      if (snappedEnd) {
+        this.startPosition = snappedEnd.clone();
+        console.log('Box created, continuing from endpoint');
+      } else {
+        // If wall creation failed (intersection), keep the current start position
+        console.log('Wall creation failed, keeping current start position');
+      }
     }
   }
 
@@ -242,6 +256,156 @@ export class RendererLayer extends BaseLayer {
   // HELPER METHODS
   // ==========================================
 
+  private checkWallIntersection(start: THREE.Vector3, end: THREE.Vector3): boolean {
+    // Get the new wall's corners as a rectangle
+    const newWallCorners = this.getWallCorners(start, end);
+    
+    // Check against all existing walls
+    for (const existingBox of this.createdBoxes) {
+      // Extract start and end points from the existing box
+      const boxStart = this.getBoxStartPoint(existingBox);
+      const boxEnd = this.getBoxEndPoint(existingBox);
+      
+      // Allow walls that share endpoints (connected walls)
+      if (this.pointsAreEqual(start, boxStart) || this.pointsAreEqual(start, boxEnd) ||
+          this.pointsAreEqual(end, boxStart) || this.pointsAreEqual(end, boxEnd)) {
+        continue; // Skip intersection check for connected walls
+      }
+      
+      const existingWallCorners = this.getWallCorners(boxStart, boxEnd);
+      
+      // Check if the two rectangles (walls) intersect using SAT
+      if (this.rectanglesIntersect(newWallCorners, existingWallCorners)) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  private pointsAreEqual(p1: THREE.Vector3, p2: THREE.Vector3, tolerance: number = 0.001): boolean {
+    return Math.abs(p1.x - p2.x) < tolerance && 
+           Math.abs(p1.z - p2.z) < tolerance;
+  }
+
+  private getBoxStartPoint(box: THREE.Mesh): THREE.Vector3 {
+    const geometry = box.geometry as THREE.BoxGeometry;
+    const length = geometry.parameters.width;
+    const halfLength = length / 2;
+    const angle = -box.rotation.y; // Negate because we negated it when creating
+    
+    // Calculate start point (move half length backwards from center)
+    const startX = box.position.x - halfLength * Math.cos(angle);
+    const startZ = box.position.z - halfLength * Math.sin(angle);
+    
+    return new THREE.Vector3(startX, 0, startZ);
+  }
+
+  private getBoxEndPoint(box: THREE.Mesh): THREE.Vector3 {
+    const geometry = box.geometry as THREE.BoxGeometry;
+    const length = geometry.parameters.width;
+    const halfLength = length / 2;
+    const angle = -box.rotation.y;
+    
+    // Calculate end point (move half length forwards from center)
+    const endX = box.position.x + halfLength * Math.cos(angle);
+    const endZ = box.position.z + halfLength * Math.sin(angle);
+    
+    return new THREE.Vector3(endX, 0, endZ);
+  }
+
+  private getWallCorners(start: THREE.Vector3, end: THREE.Vector3): THREE.Vector2[] {
+    // Calculate the direction vector
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const length = Math.sqrt(dx * dx + dz * dz);
+    
+    if (length < 0.001) {
+      // Degenerate case, return a point
+      return [
+        new THREE.Vector2(start.x, start.z),
+        new THREE.Vector2(start.x, start.z),
+        new THREE.Vector2(start.x, start.z),
+        new THREE.Vector2(start.x, start.z)
+      ];
+    }
+    
+    // Normalized direction
+    const dirX = dx / length;
+    const dirZ = dz / length;
+    
+    // Perpendicular direction (for thickness)
+    const perpX = -dirZ;
+    const perpZ = dirX;
+    
+    const halfThickness = BOX_THICKNESS / 2;
+    
+    // Calculate 4 corners of the rectangle
+    const corners = [
+      new THREE.Vector2(
+        start.x + perpX * halfThickness,
+        start.z + perpZ * halfThickness
+      ),
+      new THREE.Vector2(
+        start.x - perpX * halfThickness,
+        start.z - perpZ * halfThickness
+      ),
+      new THREE.Vector2(
+        end.x - perpX * halfThickness,
+        end.z - perpZ * halfThickness
+      ),
+      new THREE.Vector2(
+        end.x + perpX * halfThickness,
+        end.z + perpZ * halfThickness
+      )
+    ];
+    
+    return corners;
+  }
+
+  private rectanglesIntersect(rect1: THREE.Vector2[], rect2: THREE.Vector2[]): boolean {
+    // Use Separating Axis Theorem (SAT) for oriented rectangle collision
+    const axes = [
+      // Axes from rect1
+      this.getEdgeNormal(rect1[0], rect1[1]),
+      this.getEdgeNormal(rect1[1], rect1[2]),
+      // Axes from rect2
+      this.getEdgeNormal(rect2[0], rect2[1]),
+      this.getEdgeNormal(rect2[1], rect2[2])
+    ];
+    
+    for (const axis of axes) {
+      const projection1 = this.projectRectangle(rect1, axis);
+      const projection2 = this.projectRectangle(rect2, axis);
+      
+      // Check if projections overlap
+      if (projection1.max < projection2.min || projection2.max < projection1.min) {
+        return false; // Found separating axis, no intersection
+      }
+    }
+    
+    return true; // No separating axis found, rectangles intersect
+  }
+
+  private getEdgeNormal(p1: THREE.Vector2, p2: THREE.Vector2): THREE.Vector2 {
+    const edge = new THREE.Vector2(p2.x - p1.x, p2.y - p1.y);
+    // Return perpendicular (normal)
+    return new THREE.Vector2(-edge.y, edge.x).normalize();
+  }
+
+  private projectRectangle(rect: THREE.Vector2[], axis: THREE.Vector2): { min: number; max: number } {
+    let min = rect[0].dot(axis);
+    let max = min;
+    
+    for (let i = 1; i < rect.length; i++) {
+      const projection = rect[i].dot(axis);
+      if (projection < min) min = projection;
+      if (projection > max) max = projection;
+    }
+    
+    return { min, max };
+  }
+
   private getGroundPosition(clientX: number, clientY: number): THREE.Vector3 | null {
     this.mouse.x = (clientX / this.viewport.width) * 2 - 1;
     this.mouse.y = -(clientY / this.viewport.height) * 2 + 1;
@@ -250,6 +414,12 @@ export class RendererLayer extends BaseLayer {
     
     const intersectPoint = new THREE.Vector3();
     const intersected = this.raycaster.ray.intersectPlane(this.groundPlane, intersectPoint);
+    
+    if (intersected) {
+      // Snap to 0.01 unit grid
+      intersectPoint.x = Math.round(intersectPoint.x / 0.01) * 0.01;
+      intersectPoint.z = Math.round(intersectPoint.z / 0.01) * 0.01;
+    }
     
     return intersected ? intersectPoint : null;
   }
@@ -263,7 +433,19 @@ export class RendererLayer extends BaseLayer {
     if (length < 0.01) return; // Don't create tiny boxes
     
     // Calculate rotation angle to align box with the line
-    const angle = Math.atan2(dz, dx);
+    let angle = Math.atan2(dz, dx);
+    
+    // Snap angle to 45-degree increments
+    const angleInDegrees = angle * (180 / Math.PI);
+    const snappedAngleDegrees = Math.round(angleInDegrees / 45) * 45;
+    const snappedAngle = snappedAngleDegrees * (Math.PI / 180);
+    
+    // Recalculate end point based on snapped angle while preserving length
+    const snappedEnd = new THREE.Vector3(
+      start.x + length * Math.cos(snappedAngle),
+      end.y,
+      start.z + length * Math.sin(snappedAngle)
+    );
     
     // Remove existing preview
     if (this.previewMesh) {
@@ -275,36 +457,56 @@ export class RendererLayer extends BaseLayer {
     const previewGeometry = new THREE.BoxGeometry(length, BOX_HEIGHT, BOX_THICKNESS);
     this.previewMesh = new THREE.Mesh(previewGeometry, this.previewMaterial);
     
-    // Position at midpoint between start and end, raised by half height
-    const midX = (start.x + end.x) / 2;
-    const midZ = (start.z + end.z) / 2;
+    // Position at midpoint between start and snapped end, raised by half height
+    const midX = (start.x + snappedEnd.x) / 2;
+    const midZ = (start.z + snappedEnd.z) / 2;
     this.previewMesh.position.set(midX, BOX_HEIGHT / 2, midZ);
     
     // Rotate to align with the direction
-    this.previewMesh.rotation.y = -angle;
+    this.previewMesh.rotation.y = -snappedAngle;
     
     this.scene.add(this.previewMesh);
   }
 
-  private createFinalBox(start: THREE.Vector3, end: THREE.Vector3): void {
+  private createFinalBox(start: THREE.Vector3, end: THREE.Vector3): THREE.Vector3 | null {
     const dx = end.x - start.x;
     const dz = end.z - start.z;
     const length = Math.sqrt(dx * dx + dz * dz);
     
-    if (length < 0.01) return; // Don't create tiny boxes
+    if (length < 0.01) return null; // Don't create tiny boxes
     
-    const angle = Math.atan2(dz, dx);
+    let angle = Math.atan2(dz, dx);
+    
+    // Snap angle to 45-degree increments
+    const angleInDegrees = angle * (180 / Math.PI);
+    const snappedAngleDegrees = Math.round(angleInDegrees / 45) * 45;
+    const snappedAngle = snappedAngleDegrees * (Math.PI / 180);
+    
+    // Recalculate end point based on snapped angle while preserving length
+    const snappedEnd = new THREE.Vector3(
+      start.x + length * Math.cos(snappedAngle),
+      end.y,
+      start.z + length * Math.sin(snappedAngle)
+    );
+    
+    // Check for intersection with existing walls
+    if (this.checkWallIntersection(start, snappedEnd)) {
+      console.warn('Cannot create wall: intersects with existing wall');
+      return null;
+    }
     
     const boxGeometry = new THREE.BoxGeometry(length, BOX_HEIGHT, BOX_THICKNESS);
     const box = new THREE.Mesh(boxGeometry, this.boxMaterial.clone());
     
-    const midX = (start.x + end.x) / 2;
-    const midZ = (start.z + end.z) / 2;
+    const midX = (start.x + snappedEnd.x) / 2;
+    const midZ = (start.z + snappedEnd.z) / 2;
     box.position.set(midX, BOX_HEIGHT / 2, midZ);
-    box.rotation.y = -angle;
+    box.rotation.y = -snappedAngle;
     
     this.scene.add(box);
     this.createdBoxes.push(box);
+    
+    return snappedEnd;
   }
 
   private clearPreview(): void {
