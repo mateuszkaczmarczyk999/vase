@@ -8,6 +8,7 @@ import type {
   InputKeyDownPayload,
   InputMouseDownPayload,
   InputMouseMovePayload,
+  ToggleDrawModePayload,
 } from '../core/events';
 
 // Box dimensions constants
@@ -142,6 +143,11 @@ export class RendererLayer extends BaseLayer {
     this.subscribe(EventType.INPUT_MOUSE_MOVE, (payload: InputMouseMovePayload) => {
       this.handleMouseMove(payload.clientX, payload.clientY);
     });
+
+    // Subscribe to toggle draw mode event
+    this.subscribe(EventType.TOGGLE_DRAW_MODE, (payload: ToggleDrawModePayload) => {
+      this.toggleDrawMode(payload.enabled);
+    });
   }
 
   onUpdate(deltaTime: number): void {
@@ -177,23 +183,28 @@ export class RendererLayer extends BaseLayer {
 
   private handleKeyDown(key: string): void {
     if (key === 'd' || key === 'D') {
-      this.drawMode = !this.drawMode;
-      this.controls.enabled = !this.drawMode;
-      
-      if (this.drawMode) {
-        this.eventBus.emit(EventType.CURSOR_CHANGE, { cursor: 'crosshair' });
-        console.log('Draw mode enabled');
-      } else {
-        this.eventBus.emit(EventType.CURSOR_CHANGE, { cursor: 'default' });
-        this.resetDrawState();
-        console.log('Draw mode disabled');
-      }
+      this.toggleDrawMode();
     }
     
     // Escape to cancel current drawing
     if (key === 'Escape' && this.drawMode && this.startPosition) {
       this.resetDrawState();
       console.log('Drawing cancelled');
+    }
+  }
+
+  private toggleDrawMode(enabled?: boolean): void {
+    // If enabled is provided, use it; otherwise toggle
+    this.drawMode = enabled !== undefined ? enabled : !this.drawMode;
+    this.controls.enabled = !this.drawMode;
+    
+    if (this.drawMode) {
+      this.eventBus.emit(EventType.CURSOR_CHANGE, { cursor: 'crosshair' });
+      console.log('Draw mode enabled');
+    } else {
+      this.eventBus.emit(EventType.CURSOR_CHANGE, { cursor: 'default' });
+      this.resetDrawState();
+      console.log('Draw mode disabled');
     }
   }
 
@@ -210,8 +221,11 @@ export class RendererLayer extends BaseLayer {
     } else {
       // Second click - create final box
       this.createFinalBox(this.startPosition, position);
-      this.resetDrawState();
-      console.log('Box created');
+      // Clear the preview before starting the next wall
+      this.clearPreview();
+      // Set the end position as the new start position for continuous drawing
+      this.startPosition = position.clone();
+      console.log('Box created, continuing from endpoint');
     }
   }
 

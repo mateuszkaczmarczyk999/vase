@@ -11,6 +11,7 @@ export const EventType = {
   
   // Renderer events
   CURSOR_CHANGE: 'CURSOR_CHANGE',
+  TOGGLE_DRAW_MODE: 'TOGGLE_DRAW_MODE',
 } as const;
 
 export type EventTypeKey = keyof typeof EventType;
@@ -47,6 +48,10 @@ export interface CursorChangePayload {
   cursor: string;
 }
 
+export interface ToggleDrawModePayload {
+  enabled?: boolean; // Optional - if not provided, it will toggle
+}
+
 // Event payload type map for type safety
 export interface EventPayloadMap {
   [EventType.VIEWPORT_RESIZE]: ViewportResizePayload;
@@ -55,6 +60,7 @@ export interface EventPayloadMap {
   [EventType.INPUT_MOUSE_DOWN]: InputMouseDownPayload;
   [EventType.INPUT_MOUSE_MOVE]: InputMouseMovePayload;
   [EventType.CURSOR_CHANGE]: CursorChangePayload;
+  [EventType.TOGGLE_DRAW_MODE]: ToggleDrawModePayload;
 }
 
 // Generic event interface

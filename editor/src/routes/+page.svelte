@@ -5,6 +5,7 @@
 	let canvas: HTMLCanvasElement;
 	let rendererInstance: RendererInstance | null = null;
 	let error: string | null = null;
+	let isDrawMode = false;
 	
 	onMount(async () => {
 		try {
@@ -31,6 +32,13 @@
 			}
 		};
 	});
+
+	function toggleDrawMode() {
+		if (rendererInstance) {
+			isDrawMode = !isDrawMode;
+			rendererInstance.eventBus.emit('TOGGLE_DRAW_MODE', { enabled: isDrawMode });
+		}
+	}
 </script>
 
 {#if error}
@@ -40,6 +48,15 @@
 	</div>
 {:else}
 	<canvas bind:this={canvas}></canvas>
+	<div class="controls">
+		<button 
+			class="draw-mode-btn" 
+			class:active={isDrawMode}
+			on:click={toggleDrawMode}
+		>
+			{isDrawMode ? 'Exit Draw Mode' : 'Draw Mode'}
+		</button>
+	</div>
 {/if}
 
 <style>
@@ -53,6 +70,47 @@
 		display: block;
 		width: 100vw;
 		height: 100vh;
+	}
+
+	.controls {
+		position: fixed;
+		top: 20px;
+		right: 20px;
+		z-index: 1000;
+	}
+
+	.draw-mode-btn {
+		padding: 12px 24px;
+		font-size: 14px;
+		font-weight: 600;
+		background: rgba(255, 255, 255, 0.1);
+		color: #ffffff;
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		border-radius: 8px;
+		cursor: pointer;
+		backdrop-filter: blur(10px);
+		transition: all 0.2s ease;
+		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+	}
+
+	.draw-mode-btn:hover {
+		background: rgba(255, 255, 255, 0.2);
+		border-color: rgba(255, 255, 255, 0.5);
+		transform: translateY(-1px);
+	}
+
+	.draw-mode-btn:active {
+		transform: translateY(0);
+	}
+
+	.draw-mode-btn.active {
+		background: rgba(74, 144, 217, 0.8);
+		border-color: #4a90d9;
+		box-shadow: 0 0 20px rgba(74, 144, 217, 0.5);
+	}
+
+	.draw-mode-btn.active:hover {
+		background: rgba(74, 144, 217, 0.9);
 	}
 	
 	.error {

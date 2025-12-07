@@ -4,6 +4,7 @@ import { EventBus, LayerStack } from './core';
 
 export interface RendererInstance {
   cleanup: () => void;
+  eventBus: EventBus;
 }
 
 export async function initRenderer(canvas: HTMLCanvasElement): Promise<RendererInstance> {
@@ -34,5 +35,5 @@ export async function initRenderer(canvas: HTMLCanvasElement): Promise<RendererI
     eventBus.clear();
   };
 
-  return { cleanup };
+  return { cleanup, eventBus };
 }
