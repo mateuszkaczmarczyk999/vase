@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DirectionalLight, AmbientLight } from 'three/webgpu';
+import { createWebPlatform, Platform } from './platform';
 
 export interface RendererInstance {
   cleanup: () => void;
@@ -12,12 +13,16 @@ const BOX_THICKNESS = 0.3;
 const BOX_HEIGHT = 2.75;
 
 export async function initRenderer(canvas: HTMLCanvasElement): Promise<RendererInstance> {
+  // Create platform abstraction
+  const platform = createWebPlatform({ canvas });
+  const viewport = platform.getViewport();
+  
   // Create WebGPU renderer
   const renderer = new WebGPURenderer({ canvas, antialias: true });
   await renderer.init();
   
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(viewport.width, viewport.height);
+  renderer.setPixelRatio(viewport.pixelRatio);
 
   // Create scene
   const scene = new THREE.Scene();
@@ -26,7 +31,7 @@ export async function initRenderer(canvas: HTMLCanvasElement): Promise<RendererI
   // Create camera
   const camera = new THREE.PerspectiveCamera(
     75,
-    window.innerWidth / window.innerHeight,
+    viewport.width / viewport.height,
     0.1,
     1000
   );
@@ -86,9 +91,10 @@ export async function initRenderer(canvas: HTMLCanvasElement): Promise<RendererI
   // ==========================================
   
   // Get world position from mouse coordinates on the ground plane
-  function getGroundPosition(event: MouseEvent): THREE.Vector3 | null {
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+  function getGroundPosition(clientX: number, clientY: number): THREE.Vector3 | null {
+    const viewport = platform.getViewport();
+    mouse.x = (clientX / viewport.width) * 2 - 1;
+    mouse.y = -(clientY / viewport.height) * 2 + 1;
     
     raycaster.setFromCamera(mouse, camera);
     
@@ -168,92 +174,76 @@ export async function initRenderer(canvas: HTMLCanvasElement): Promise<RendererI
   }
 
   // ==========================================
-  // EVENT HANDLERS
+  // INPUT HANDLERS (using platform)
   // ==========================================
   
-  // Handle 'd' key to toggle draw mode
-  const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key === 'd' || event.key === 'D') {
-      drawMode = !drawMode;
-      controls.enabled = !drawMode;
+  platform.registerInputHandlers({
+    onKeyDown: (key: string) => {
+      if (key === 'd' || key === 'D') {
+        drawMode = !drawMode;
+        controls.enabled = !drawMode;
+        
+        if (drawMode) {
+          platform.setCursor('crosshair');
+          console.log('Draw mode enabled');
+        } else {
+          platform.setCursor('default');
+          resetDrawState();
+          console.log('Draw mode disabled');
+        }
+      }
       
-      if (drawMode) {
-        canvas.style.cursor = 'crosshair';
-        console.log('Draw mode enabled');
-      } else {
-        canvas.style.cursor = 'default';
+      // Escape to cancel current drawing
+      if (key === 'Escape' && drawMode && startPosition) {
         resetDrawState();
-        console.log('Draw mode disabled');
+        console.log('Drawing cancelled');
+      }
+    },
+    
+    onClick: (clientX: number, clientY: number) => {
+      if (!drawMode) return;
+      
+      const position = getGroundPosition(clientX, clientY);
+      if (!position) return;
+      
+      if (!startPosition) {
+        // First click - set start position
+        startPosition = position.clone();
+        console.log('Start position set:', startPosition);
+      } else {
+        // Second click - create final box
+        createFinalBox(position);
+        resetDrawState();
+        console.log('Box created');
+      }
+    },
+    
+    onMouseMove: (clientX: number, clientY: number) => {
+      if (!drawMode || !startPosition) return;
+      
+      const position = getGroundPosition(clientX, clientY);
+      if (position) {
+        updatePreviewBox(position);
       }
     }
-    
-    // Escape to cancel current drawing
-    if (event.key === 'Escape' && drawMode && startPosition) {
-      resetDrawState();
-      console.log('Drawing cancelled');
-    }
-  };
-  
-  // Handle mouse click for start/end positions
-  const handleClick = (event: MouseEvent) => {
-    if (!drawMode) return;
-    
-    const position = getGroundPosition(event);
-    if (!position) return;
-    
-    if (!startPosition) {
-      // First click - set start position
-      startPosition = position.clone();
-      console.log('Start position set:', startPosition);
-    } else {
-      // Second click - create final box
-      createFinalBox(position);
-      resetDrawState();
-      console.log('Box created');
-    }
-  };
-  
-  // Handle mouse move for preview update
-  const handleMouseMove = (event: MouseEvent) => {
-    if (!drawMode || !startPosition) return;
-    
-    const position = getGroundPosition(event);
-    if (position) {
-      updatePreviewBox(position);
-    }
-  };
-  
-  // Add event listeners
-  window.addEventListener('keydown', handleKeyDown);
-  canvas.addEventListener('click', handleClick);
-  canvas.addEventListener('mousemove', handleMouseMove);
+  });
 
-  // Handle window resize
-  const handleResize = () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+  // Handle window resize using platform
+  platform.onResize((viewport) => {
+    camera.aspect = viewport.width / viewport.height;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  };
-  window.addEventListener('resize', handleResize);
+    renderer.setSize(viewport.width, viewport.height);
+  });
 
-  // Animation loop
-  let animationFrameId: number;
-  const animate = () => {
-    animationFrameId = requestAnimationFrame(animate);
+  // Animation loop using platform
+  platform.startAnimationLoop(() => {
     controls.update();
     renderer.render(scene, camera);
-  };
-  animate();
+  });
 
   // Cleanup function
   const cleanup = () => {
-    cancelAnimationFrame(animationFrameId);
-    
-    // Remove event listeners
-    window.removeEventListener('resize', handleResize);
-    window.removeEventListener('keydown', handleKeyDown);
-    canvas.removeEventListener('click', handleClick);
-    canvas.removeEventListener('mousemove', handleMouseMove);
+    platform.dispose();
     
     // Dispose controls
     controls.dispose();
