@@ -1,43 +1,37 @@
 import { createWebPlatform } from './platform';
-import { createRenderer } from './renderer';
+import { RendererLayer } from './renderer';
+import { EventBus, LayerStack } from './core';
 
 export interface RendererInstance {
   cleanup: () => void;
 }
 
 export async function initRenderer(canvas: HTMLCanvasElement): Promise<RendererInstance> {
-  // Create platform abstraction
-  const platform = createWebPlatform({ canvas });
+  // Create EventBus for communication between layers
+  const eventBus = new EventBus();
+  
+  // Create LayerStack to manage application layers
+  const layerStack = new LayerStack();
+  
+  // Create platform abstraction with EventBus
+  const platform = createWebPlatform({ canvas, eventBus });
   const viewport = platform.getViewport();
   
-  // Create renderer (handles all three.js concerns)
-  const renderer = await createRenderer({
-    canvas,
-    viewport,
-    onCursorChange: (cursor: string) => platform.setCursor(cursor),
-  });
+  // Create and push RendererLayer (async - waits for WebGPU initialization)
+  const rendererLayer = new RendererLayer({ canvas, viewport }, eventBus);
+  await layerStack.pushLayer(rendererLayer);
 
-  // Initialize renderer input handlers
-  renderer.registerInputHandlers({});
-
-  // Wire platform input events to renderer
-  const handlers = renderer.getInputHandlers();
-  platform.registerInputHandlers(handlers);
-
-  // Handle window resize
-  platform.onResize((viewport) => {
-    renderer.resize(viewport);
-  });
-
-  // Animation loop
-  platform.startAnimationLoop(() => {
-    renderer.render();
+  // Animation loop - updates and renders all layers
+  platform.startAnimationLoop((deltaTime: number) => {
+    layerStack.update(deltaTime);
+    layerStack.render();
   });
 
   // Cleanup function
   const cleanup = () => {
+    layerStack.clear();
     platform.dispose();
-    renderer.cleanup();
+    eventBus.clear();
   };
 
   return { cleanup };

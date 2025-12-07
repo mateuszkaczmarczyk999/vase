@@ -1,13 +1,14 @@
-import { Platform, PlatformConfig, PlatformViewport, InputHandler } from '../types';
+import { Platform, PlatformConfig, PlatformViewport } from '../types';
+import { EventBus, EventType } from '../../core';
 
 export class WebPlatform implements Platform {
   readonly canvas: HTMLCanvasElement;
+  private eventBus: EventBus;
   
-  private resizeCallback?: (viewport: PlatformViewport) => void;
   private animationFrameId?: number;
-  private animationCallback?: () => void;
+  private animationCallback?: (deltaTime: number) => void;
+  private lastFrameTime: number = 0;
   
-  private inputHandlers: InputHandler = {};
   private boundKeyDownHandler: (e: KeyboardEvent) => void;
   private boundClickHandler: (e: MouseEvent) => void;
   private boundMouseMoveHandler: (e: MouseEvent) => void;
@@ -15,12 +16,30 @@ export class WebPlatform implements Platform {
   
   constructor(config: PlatformConfig) {
     this.canvas = config.canvas;
+    this.eventBus = config.eventBus;
     
     // Bind event handlers
     this.boundKeyDownHandler = this.handleKeyDown.bind(this);
     this.boundClickHandler = this.handleClick.bind(this);
     this.boundMouseMoveHandler = this.handleMouseMove.bind(this);
     this.boundResizeHandler = this.handleResize.bind(this);
+    
+    // Setup input event listeners
+    this.setupInputListeners();
+    
+    // Setup resize listener
+    window.addEventListener('resize', this.boundResizeHandler);
+    
+    // Subscribe to cursor change events
+    this.eventBus.on(EventType.CURSOR_CHANGE, (payload) => {
+      this.setCursor(payload.cursor);
+    });
+  }
+  
+  private setupInputListeners(): void {
+    window.addEventListener('keydown', this.boundKeyDownHandler);
+    this.canvas.addEventListener('click', this.boundClickHandler);
+    this.canvas.addEventListener('mousemove', this.boundMouseMoveHandler);
   }
   
   getViewport(): PlatformViewport {
@@ -31,40 +50,13 @@ export class WebPlatform implements Platform {
     };
   }
   
-  onResize(callback: (viewport: PlatformViewport) => void): void {
-    this.resizeCallback = callback;
-    window.addEventListener('resize', this.boundResizeHandler);
-  }
-  
-  registerInputHandlers(handlers: InputHandler): void {
-    this.inputHandlers = handlers;
-    
-    if (handlers.onKeyDown) {
-      window.addEventListener('keydown', this.boundKeyDownHandler);
-    }
-    
-    if (handlers.onClick) {
-      this.canvas.addEventListener('click', this.boundClickHandler);
-    }
-    
-    if (handlers.onMouseMove) {
-      this.canvas.addEventListener('mousemove', this.boundMouseMoveHandler);
-    }
-  }
-  
-  unregisterInputHandlers(): void {
-    window.removeEventListener('keydown', this.boundKeyDownHandler);
-    this.canvas.removeEventListener('click', this.boundClickHandler);
-    this.canvas.removeEventListener('mousemove', this.boundMouseMoveHandler);
-    this.inputHandlers = {};
-  }
-  
-  setCursor(cursor: string): void {
+  private setCursor(cursor: string): void {
     this.canvas.style.cursor = cursor;
   }
   
-  startAnimationLoop(callback: () => void): void {
+  startAnimationLoop(callback: (deltaTime: number) => void): void {
     this.animationCallback = callback;
+    this.lastFrameTime = performance.now();
     this.animate();
   }
   
@@ -77,34 +69,58 @@ export class WebPlatform implements Platform {
   
   dispose(): void {
     this.stopAnimationLoop();
-    this.unregisterInputHandlers();
     
-    if (this.resizeCallback) {
-      window.removeEventListener('resize', this.boundResizeHandler);
-      this.resizeCallback = undefined;
-    }
+    // Remove input listeners
+    window.removeEventListener('keydown', this.boundKeyDownHandler);
+    this.canvas.removeEventListener('click', this.boundClickHandler);
+    this.canvas.removeEventListener('mousemove', this.boundMouseMoveHandler);
+    
+    // Remove resize listener
+    window.removeEventListener('resize', this.boundResizeHandler);
   }
   
-  // Private event handlers
+  // Private event handlers - emit events to EventBus
   private handleKeyDown(event: KeyboardEvent): void {
-    this.inputHandlers.onKeyDown?.(event.key);
+    this.eventBus.emit(EventType.INPUT_KEY_DOWN, {
+      key: event.key
+    });
   }
   
   private handleClick(event: MouseEvent): void {
-    this.inputHandlers.onClick?.(event.clientX, event.clientY);
+    this.eventBus.emit(EventType.INPUT_MOUSE_DOWN, {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      button: event.button
+    });
   }
   
   private handleMouseMove(event: MouseEvent): void {
-    this.inputHandlers.onMouseMove?.(event.clientX, event.clientY);
+    this.eventBus.emit(EventType.INPUT_MOUSE_MOVE, {
+      clientX: event.clientX,
+      clientY: event.clientY
+    });
   }
   
   private handleResize(): void {
-    this.resizeCallback?.(this.getViewport());
+    const viewport = this.getViewport();
+    this.eventBus.emit(EventType.VIEWPORT_RESIZE, viewport);
   }
   
   private animate = (): void => {
     this.animationFrameId = requestAnimationFrame(this.animate);
-    this.animationCallback?.();
+    
+    const currentTime = performance.now();
+    const deltaTime = (currentTime - this.lastFrameTime) / 1000; // Convert to seconds
+    this.lastFrameTime = currentTime;
+    
+    // Emit animation frame event
+    this.eventBus.emit(EventType.ANIMATION_FRAME, {
+      deltaTime,
+      timestamp: currentTime
+    });
+    
+    // Call the animation callback
+    this.animationCallback?.(deltaTime);
   };
 }
 

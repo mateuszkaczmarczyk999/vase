@@ -1,7 +1,8 @@
-import * as THREE from 'three';
+import { EventBus } from '../core';
 
 export interface PlatformConfig {
   canvas: HTMLCanvasElement;
+  eventBus: EventBus;
 }
 
 export interface PlatformViewport {
@@ -10,28 +11,14 @@ export interface PlatformViewport {
   pixelRatio: number;
 }
 
-export interface InputHandler {
-  onKeyDown?: (key: string) => void;
-  onClick?: (clientX: number, clientY: number) => void;
-  onMouseMove?: (clientX: number, clientY: number) => void;
-}
-
 export interface Platform {
   readonly canvas: HTMLCanvasElement;
   
   // Viewport management
   getViewport(): PlatformViewport;
-  onResize(callback: (viewport: PlatformViewport) => void): void;
-  
-  // Input handling
-  registerInputHandlers(handlers: InputHandler): void;
-  unregisterInputHandlers(): void;
-  
-  // Cursor management
-  setCursor(cursor: string): void;
   
   // Animation loop
-  startAnimationLoop(callback: () => void): void;
+  startAnimationLoop(callback: (deltaTime: number) => void): void;
   stopAnimationLoop(): void;
   
   // Cleanup
