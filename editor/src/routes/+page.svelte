@@ -1,70 +1,82 @@
 <script lang="ts">
-	let count = $state<number>(0);
+	import { onMount } from 'svelte';
+	import type { RendererInstance } from '$external/index';
 	
-	function increment(): void {
-		count++;
-	}
+	let canvas: HTMLCanvasElement;
+	let rendererInstance: RendererInstance | null = null;
+	let error: string | null = null;
+	
+	onMount(async () => {
+		try {
+			// Check for WebGPU support
+			if (!navigator.gpu) {
+				error = 'WebGPU is not supported in this browser. Please use Chrome/Edge 113+ or a browser with WebGPU enabled.';
+				return;
+			}
+			
+		// Dynamically import the engine
+		const { initRenderer } = await import('$external/engine.js');
+			
+		// Initialize the engine
+		rendererInstance = await initRenderer(canvas);
+		} catch (err) {
+		error = err instanceof Error ? err.message : 'Failed to initialize engine';
+		console.error('Engine initialization error:', err);
+		}
+		
+		// Cleanup on component destroy
+		return () => {
+			if (rendererInstance) {
+				rendererInstance.cleanup();
+			}
+		};
+	});
 </script>
 
-<main>
-	<h1>Hello World!</h1>
-	<p>Welcome to Svelte 5</p>
-	
-	<div class="counter">
-		<button onclick={increment}>
-			Count: {count}
-		</button>
+{#if error}
+	<div class="error">
+		<h1>Error</h1>
+		<p>{error}</p>
 	</div>
-</main>
+{:else}
+	<canvas bind:this={canvas}></canvas>
+{/if}
 
 <style>
-	main {
+	:global(body) {
+		margin: 0;
+		padding: 0;
+		overflow: hidden;
+	}
+	
+	canvas {
+		display: block;
+		width: 100vw;
+		height: 100vh;
+	}
+	
+	.error {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
 		min-height: 100vh;
 		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		color: white;
+		background: #1a1a1a;
+		color: #ff6b6b;
+		padding: 2rem;
+		text-align: center;
 	}
 	
-	h1 {
-		font-size: 4rem;
-		margin: 0;
-		text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+	.error h1 {
+		font-size: 3rem;
+		margin: 0 0 1rem 0;
 	}
 	
-	p {
-		font-size: 1.5rem;
-		margin: 1rem 0 2rem;
-		opacity: 0.9;
-	}
-	
-	.counter {
-		margin-top: 2rem;
-	}
-	
-	button {
-		background: white;
-		color: #667eea;
-		border: none;
-		padding: 1rem 2rem;
+	.error p {
 		font-size: 1.2rem;
-		border-radius: 8px;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		font-weight: 600;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-	}
-	
-	button:hover {
-		transform: translateY(-2px);
-		box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
-	}
-	
-	button:active {
-		transform: translateY(0);
+		max-width: 600px;
+		line-height: 1.6;
 	}
 </style>
 
