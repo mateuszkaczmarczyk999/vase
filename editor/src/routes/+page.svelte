@@ -1,7 +1,7 @@
-<script>
-	let count = $state(0);
+<script lang="ts">
+	let count = $state<number>(0);
 	
-	function increment() {
+	function increment(): void {
 		count++;
 	}
 </script>
